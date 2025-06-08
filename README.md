@@ -27,16 +27,10 @@ A lightweight Retrieval-Augmented Generation (RAG) application optimized for Ras
 
 1. **Install required packages:**
 ```bash
-pip install streamlit torch transformers langchain sentence-transformers faiss-cpu pypdf
+pip install -r requirements.txt
 ```
 
-2. **Download the application:**
-```bash
-# If you have the file locally
-python raspberry_pi_rag.py
-```
-
-3. **Run the application:**
+2. **Run the application:**
 ```bash
 streamlit run raspberry_pi_rag.py
 ```
