@@ -309,8 +309,8 @@ def main():
         layout="wide"
     )
     
-    st.title("🤖 Raspberry Pi RAG Assistant")
-    st.markdown("*Powered by TinyLlama - Optimized for Edge Devices*")
+    st.title("🤖 SUE (SML Unit for Emergencies)")
+    st.markdown("*Aid supplier Optimized for Edge Devices in emergecy and isolated situations*")
     
     # Initialize RAG system
     if 'rag_system' not in st.session_state:
