@@ -1,6 +1,7 @@
 
-# Raspberry Pi RAG Assistant
+# S(ML) Unit for Emergencies - SUE -
 
+This personal project is focused on a private, isolated, emergency self-assistant for isolated situations where you need to ask questions about health or caution on hazardous elements and you are without electricity and internet access.
 A lightweight Retrieval-Augmented Generation (RAG) application optimized for Raspberry Pi and edge devices. This application allows you to upload documents and chat with them using AI, powered by TinyLlama and optimized for low-resource environments.
 
 ## 🚀 Features
@@ -138,7 +139,7 @@ max_new_tokens = 256  # Maximum response length
 
 ## 🤝 Contributing
 
-This application was made by Andrés Alonso and is designed for educational and development purposes. Feel free to:
+This application was made by [Andrés Alonso](mailto:andres@cyberinsights.es) and is designed for educational and development purposes. Feel free to:
 - Optimize for different edge devices
 - Add support for additional file formats
 - Improve the user interface
