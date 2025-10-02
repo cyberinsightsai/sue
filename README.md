@@ -138,7 +138,7 @@ max_new_tokens = 256  # Maximum response length
 
 ## 🤝 Contributing
 
-This application is designed for educational and development purposes. Feel free to:
+This application was made by Andrés Alonso and is designed for educational and development purposes. Feel free to:
 - Optimize for different edge devices
 - Add support for additional file formats
 - Improve the user interface
