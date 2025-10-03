@@ -23,7 +23,7 @@ A lightweight Retrieval-Augmented Generation (RAG) application optimized for Ras
 ### Software
 - Python 3.8+
 - Internet connection for initial model download
-- Ollama: for testing different models
+- [Ollama](ollama.com): for testing different models
 
 >✅ Last recommended model tested with success results is IBM Granite 4
 
