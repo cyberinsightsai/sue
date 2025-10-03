@@ -25,7 +25,8 @@ A lightweight Retrieval-Augmented Generation (RAG) application optimized for Ras
 - Internet connection for initial model download
 - Ollama: for testing different models
 
-==Last recommended model tested with success results is IBM Granite 4== 
+>✅ Last recommended model tested with success results is IBM Granite 4
+
 ```
 ollama pull granite4:micro
 ``` 
