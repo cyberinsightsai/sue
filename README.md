@@ -23,6 +23,12 @@ A lightweight Retrieval-Augmented Generation (RAG) application optimized for Ras
 ### Software
 - Python 3.8+
 - Internet connection for initial model download
+- Ollama: for testing different models
+
+== Last recommended model tested with success results is IBM Granite 4 == 
+```
+ollama pull granite4:micro
+``` 
 
 ## 📦 Installation
 
@@ -62,6 +68,7 @@ Once setup is complete:
 ## 🔧 Technical Details
 
 ### Models Used
+Besides anyone that is already downloaded by Ollama.
 
 - **Language Model**: TinyLlama/TinyLlama-1.1B-Chat-v1.0
   - Size: ~2.2GB
