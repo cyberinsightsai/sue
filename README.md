@@ -78,6 +78,7 @@ Besides anyone that is already downloaded by Ollama.
 - **Embedding Model**: all-MiniLM-L6-v2
   - Size: ~22MB
   - Efficient sentence embeddings for semantic search
+  - Alternative recommended model is [Nemotron](https://catalog.ngc.nvidia.com/orgs/nvidia/models/nemotoron-mini-4b-instruct-onnx-int4-rtx) and [Salamandra](https://huggingface.co/BSC-LT/salamandra-2b-instruct)
 
 ### Architecture
 
