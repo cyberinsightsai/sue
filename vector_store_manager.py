@@ -1,98 +1,109 @@
-from typing import List, Dict, Optional, Any
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+"""Vector store management using LangChain's FAISS integration.
+
+Replaces the hand-rolled FAISS logic with ``langchain_community``'s
+FAISS wrapper for consistent retriever interfaces and easier
+extensibility.
+"""
+
+import logging
+from typing import Dict, List, Optional
+
 from langchain.schema import Document
-import numpy as np
-import streamlit as st
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+
+from config import RAGConfig, default_config
+
+logger = logging.getLogger(__name__)
 
 
 class VectorStoreManager:
-    """Manages vector store operations including creation and similarity search."""
+    """Creates, queries, and manages a FAISS-backed LangChain vector store."""
 
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
+    def __init__(self, config: RAGConfig = default_config):
+        self.config = config
 
-        # Text splitter for document chunking
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
+            chunk_size=config.chunk_size,
+            chunk_overlap=config.chunk_overlap,
             length_function=len,
         )
 
-        # Vector store data
-        self.vectorstore: Optional[Dict[str, Any]] = None
+        self._vectorstore: Optional[FAISS] = None
+        self._embeddings: Optional[HuggingFaceEmbeddings] = None
 
-    def create_vector_store(self, documents: List[Document], embeddings_model) -> int:
-        """Create vector store from documents using the provided embeddings model."""
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def create_vector_store(
+        self,
+        documents: List[Document],
+        embeddings: HuggingFaceEmbeddings,
+    ) -> int:
+        """Split *documents* into chunks, embed them, and build a FAISS index.
+
+        Args:
+            documents: Raw LangChain ``Document`` objects.
+            embeddings: A ``HuggingFaceEmbeddings`` instance.
+
+        Returns:
+            Number of chunks indexed, or ``0`` on failure.
+        """
         if not documents:
             return 0
 
         try:
-            # Split documents into chunks
             texts = self.text_splitter.split_documents(documents)
-
-            # Extract text content
-            text_content = [doc.page_content for doc in texts]
-
-            # Create embeddings
-            embeddings_matrix = embeddings_model.encode(text_content)
-
-            # Create simple vector store using FAISS
-            import faiss
-
-            # Initialize FAISS index
-            dimension = embeddings_matrix.shape[1]
-            index = faiss.IndexFlatL2(dimension)  # type: ignore
-            index.add(embeddings_matrix.astype("float32"))
-
-            # Store the index and documents
-            self.vectorstore = {
-                "index": index,
-                "documents": texts,
-                "embeddings": embeddings_matrix,
-            }
-
+            self._embeddings = embeddings
+            self._vectorstore = FAISS.from_documents(texts, embeddings)
+            logger.info("Created vector store with %d chunks", len(texts))
             return len(texts)
         except Exception as e:
-            st.error(f"Error creating vector store: {str(e)}")
+            logger.error("Error creating vector store: %s", e)
             return 0
 
-    def similarity_search(self, query: str, embeddings_model, k: int = 3) -> List[Dict]:
-        """Search for similar documents."""
-        if not self.vectorstore or not embeddings_model:
+    def similarity_search(self, query: str, k: int = 3) -> List[Dict]:
+        """Return the *k* most similar chunks to *query*.
+
+        Returns a list of dicts with ``content``, ``metadata``, and
+        ``score`` keys for backward compatibility with the UI layer.
+        """
+        if not self.is_initialized():
             return []
 
         try:
-            # Encode query
-            query_embedding = embeddings_model.encode([query])
-
-            # Search for similar documents
-            scores, indices = self.vectorstore["index"].search(
-                query_embedding.astype("float32"), k
-            )
-
-            # Return relevant documents
-            results = []
-            for i, idx in enumerate(indices[0]):
-                if idx != -1:  # Valid index
-                    doc = self.vectorstore["documents"][idx]
-                    results.append(
-                        {
-                            "content": doc.page_content,
-                            "metadata": doc.metadata,
-                            "score": scores[0][i],
-                        }
-                    )
-
+            docs_and_scores = self._vectorstore.similarity_search_with_score(query, k=k)
+            results: List[Dict] = []
+            for doc, score in docs_and_scores:
+                results.append(
+                    {
+                        "content": doc.page_content,
+                        "metadata": doc.metadata,
+                        "score": float(score),
+                    }
+                )
             return results
         except Exception as e:
-            st.error(f"Error in similarity search: {str(e)}")
+            logger.error("Error in similarity search: %s", e)
             return []
 
-    def is_initialized(self) -> bool:
-        """Check if vector store is initialized."""
-        return self.vectorstore is not None
+    def as_retriever(self, **kwargs):
+        """Return a LangChain ``Retriever`` backed by the FAISS store.
 
-    def clear_vector_store(self):
-        """Clear the vector store."""
-        self.vectorstore = None
+        This enables plugging the vector store directly into
+        LangChain chains (e.g. ``RetrievalQA``).
+        """
+        if not self.is_initialized():
+            raise RuntimeError("Vector store not initialized")
+        return self._vectorstore.as_retriever(**kwargs)
+
+    def is_initialized(self) -> bool:
+        """Check whether the vector store has been built."""
+        return self._vectorstore is not None
+
+    def clear(self) -> None:
+        """Discard the current vector store."""
+        self._vectorstore = None
+        self._embeddings = None
