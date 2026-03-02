@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+
+# spaCy training artifacts
+train.spacy
+dev.spacy
+
+# IDE / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+
+# Model weights / large binaries (download at runtime)
+*.bin
+*.safetensors
+*.gguf

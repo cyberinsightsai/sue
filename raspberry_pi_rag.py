@@ -1,90 +1,107 @@
-import streamlit as st
-from typing import List, Dict, Optional
+"""SUE (SML Unit for Emergencies) — Main application.
+
+Streamlit-based RAG assistant optimized for Raspberry Pi and edge devices.
+UI logic lives here; all business logic is delegated to decoupled modules.
+"""
+
+import logging
 import warnings
+
+import streamlit as st
+from langchain_core.callbacks import BaseCallbackHandler
+
+from config import RAGConfig, default_config
+from document_processor import DocumentProcessor
+from model_manager import ModelManager
+from response_generator import ResponseGenerator
+from vector_store_manager import VectorStoreManager
 
 warnings.filterwarnings("ignore")
 
-# Import our focused classes
-from model_manager import ModelManager
-from document_processor import DocumentProcessor
-from vector_store_manager import VectorStoreManager
-from response_generator import ResponseGenerator
+# Configure logging for business-logic modules
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
-# Configuration for small model suitable for Raspberry Pi
-MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # Very lightweight embedding model (22MB)
-OLLAMA_BASE_URL = "http://localhost:11434"  # Default Ollama API endpoint
-DATA_FOLDER = "data"  # Folder containing RAG documents
+
+# ======================================================================
+# LangChain Callback Handler — monitors token usage & latency
+# ======================================================================
+
+
+class StreamlitCallbackHandler(BaseCallbackHandler):
+    """Lightweight LangChain callback that logs chain activity."""
+
+    def on_chain_start(self, serialized, inputs, **kwargs):
+        logger.info("Chain started: %s", serialized.get("id", ["unknown"])[-1])
+
+    def on_chain_end(self, outputs, **kwargs):
+        logger.info("Chain finished")
+
+    def on_chain_error(self, error, **kwargs):
+        logger.error("Chain error: %s", error)
+
+    def on_llm_start(self, serialized, prompts, **kwargs):
+        logger.info("LLM invoked (%d prompt(s))", len(prompts))
+
+    def on_llm_end(self, response, **kwargs):
+        logger.info("LLM response received")
+
+    def on_llm_error(self, error, **kwargs):
+        logger.error("LLM error: %s", error)
+
+
+# ======================================================================
+# RAG System Orchestrator
+# ======================================================================
 
 
 class RaspberryPiRAG:
-    """Main RAG system orchestrating model management, document processing, and response generation."""
+    """High-level orchestrator — no Streamlit calls; pure business logic."""
 
-    def __init__(self):
-        # Initialize focused components
-        self.model_manager = ModelManager(
-            model_name=MODEL_NAME,
-            embedding_model=EMBEDDING_MODEL,
-            ollama_base_url=OLLAMA_BASE_URL,
-        )
-        self.document_processor = DocumentProcessor(data_folder=DATA_FOLDER)
-        self.vector_store_manager = VectorStoreManager()
-        self.response_generator = ResponseGenerator(ollama_base_url=OLLAMA_BASE_URL)
+    def __init__(self, config: RAGConfig = default_config):
+        self.config = config
+        self.model_manager = ModelManager(config)
+        self.document_processor = DocumentProcessor(config)
+        self.vector_store_manager = VectorStoreManager(config)
+        self.response_generator = ResponseGenerator(config)
 
-    # Delegate methods to appropriate components
-    def check_ollama_connection(self):
-        """Check if Ollama is running and accessible"""
+    # Ollama helpers
+    def check_ollama_connection(self) -> bool:
         return self.model_manager.check_ollama_connection()
 
     def list_ollama_models(self):
-        """List available Ollama models"""
         return self.model_manager.list_ollama_models()
 
-    def load_model(self):
-        """Load the TinyLlama model"""
+    # Model loading (cache in Streamlit layer, not here)
+    def load_model(self) -> bool:
         return self.model_manager.load_local_model()
 
-    def load_embeddings(self):
-        """Load embedding model"""
+    def load_embeddings(self) -> bool:
         return self.model_manager.load_embeddings()
 
-    def load_data_folder_documents(self):
-        """Load documents from the data folder"""
-        return self.document_processor.load_data_folder_documents()
-
-    def process_documents(self, uploaded_files=None):
-        """Process documents and create vector store"""
-        documents = []
-
-        # Load documents from data folder
-        documents.extend(self.load_data_folder_documents())
-
-        # Process uploaded files if provided
+    # Document processing
+    def process_documents(self, uploaded_files=None) -> int:
+        documents = self.document_processor.load_data_folder_documents()
         if uploaded_files:
             documents.extend(
                 self.document_processor.process_uploaded_files(uploaded_files)
             )
-
         if documents and self.model_manager.is_embeddings_loaded():
-            # Create vector store
-            num_chunks = self.vector_store_manager.create_vector_store(
+            return self.vector_store_manager.create_vector_store(
                 documents, self.model_manager.embeddings
             )
-            return num_chunks
-
         return 0
 
+    # Search & generate
     def similarity_search(self, query: str, k: int = 3):
-        """Search for similar documents"""
         if not self.vector_store_manager.is_initialized():
             return []
+        return self.vector_store_manager.similarity_search(query, k)
 
-        return self.vector_store_manager.similarity_search(
-            query, self.model_manager.embeddings, k
-        )
-
-    def generate_response(self, query: str, context: str):
-        """Generate response using configured model"""
+    def generate_response(self, query: str, context: str) -> str:
         return self.response_generator.generate_response(
             query=query,
             context=context,
@@ -93,7 +110,7 @@ class RaspberryPiRAG:
             tokenizer=self.model_manager.tokenizer,
         )
 
-    # Property accessors for backward compatibility
+    # Property accessors for UI layer
     @property
     def use_ollama(self):
         return self.model_manager.use_ollama
@@ -112,28 +129,41 @@ class RaspberryPiRAG:
         self.response_generator.ollama_model = value
 
 
+# ======================================================================
+# Streamlit UI
+# ======================================================================
+
+
 def main():
+    cfg = default_config
+
     st.set_page_config(
         page_title="Raspberry Pi RAG Assistant", page_icon="🤖", layout="wide"
     )
 
     st.title("🤖 SUE (SML Unit for Emergencies)")
     st.markdown(
-        "*Aid supplier Optimized for Edge Devices in emergecy and isolated situations*"
+        "*Aid supplier optimized for edge devices in emergency and isolated situations*"
     )
 
-    # Initialize RAG system
+    # ------------------------------------------------------------------
+    # Session state initialization
+    # ------------------------------------------------------------------
     if "rag_system" not in st.session_state:
-        st.session_state.rag_system = RaspberryPiRAG()
+        st.session_state.rag_system = RaspberryPiRAG(cfg)
         st.session_state.model_loaded = False
         st.session_state.embeddings_loaded = False
         st.session_state.documents_processed = False
 
-    # Sidebar for configuration
+    rag = st.session_state.rag_system
+
+    # ------------------------------------------------------------------
+    # Sidebar — setup
+    # ------------------------------------------------------------------
     with st.sidebar:
         st.header("📋 Setup")
 
-        # LLM Provider Selection
+        # LLM provider
         st.subheader("🤖 LLM Provider")
         llm_provider = st.radio(
             "Choose your LLM provider:",
@@ -142,24 +172,20 @@ def main():
         )
 
         if llm_provider == "Ollama":
-            st.session_state.rag_system.use_ollama = True
-
-            # Check Ollama connection
-            if st.session_state.rag_system.check_ollama_connection():
+            rag.use_ollama = True
+            if rag.check_ollama_connection():
                 st.success("✅ Ollama connected")
-
-                # Model selection
-                available_models = st.session_state.rag_system.list_ollama_models()
+                available_models = rag.list_ollama_models()
                 if available_models:
-                    selected_model = st.selectbox(
+                    selected = st.selectbox(
                         "Select Ollama model:",
                         available_models,
                         help="Choose from your installed Ollama models",
                     )
-                    st.session_state.rag_system.ollama_model = selected_model
+                    rag.ollama_model = selected
                     st.session_state.model_loaded = True
                 else:
-                    st.warning("No Ollama models found. Install a model first:")
+                    st.warning("No Ollama models found. Install one first:")
                     st.code("ollama pull llama3.2:1b")
                     st.session_state.model_loaded = False
             else:
@@ -167,15 +193,13 @@ def main():
                 st.info("Start Ollama with: `ollama serve`")
                 st.session_state.model_loaded = False
         else:
-            st.session_state.rag_system.use_ollama = False
-
-            # Local model loading section
+            rag.use_ollama = False
             st.subheader("1. Load Local Model")
             if st.button("Load TinyLlama Model", type="primary"):
                 with st.spinner(
-                    "Loading model... This may take a few minutes on Raspberry Pi"
+                    "Loading model… This may take a few minutes on Raspberry Pi"
                 ):
-                    if st.session_state.rag_system.load_model():
+                    if rag.load_model():
                         st.session_state.model_loaded = True
                         st.success("Model loaded successfully!")
                     else:
@@ -184,11 +208,11 @@ def main():
             if st.session_state.model_loaded:
                 st.success("✅ Model Ready")
 
-        # Embeddings loading section
+        # Embeddings
         st.subheader("2. Load Embeddings")
         if st.button("Load Embedding Model"):
-            with st.spinner("Loading embeddings..."):
-                if st.session_state.rag_system.load_embeddings():
+            with st.spinner("Loading embeddings…"):
+                if rag.load_embeddings():
                     st.session_state.embeddings_loaded = True
                     st.success("Embeddings loaded successfully!")
                 else:
@@ -197,31 +221,29 @@ def main():
         if st.session_state.embeddings_loaded:
             st.success("✅ Embeddings Ready")
 
-        # Document processing section
+        # Documents
         st.subheader("3. Process Documents")
-        st.info(f"📁 Data folder: {DATA_FOLDER}/")
+        st.info(f"📁 Data folder: {cfg.data_folder}/")
 
-        # Option to process data folder + uploaded files
         col1, col2 = st.columns(2)
         with col1:
             if st.button(
                 "Load Data Folder", help="Load documents from the data/ folder"
             ):
                 if st.session_state.embeddings_loaded:
-                    with st.spinner("Processing documents from data folder..."):
-                        num_chunks = st.session_state.rag_system.process_documents()
-                        if num_chunks > 0:
+                    with st.spinner("Processing documents from data folder…"):
+                        num = rag.process_documents()
+                        if num > 0:
                             st.session_state.documents_processed = True
-                            st.success(f"Processed {num_chunks} document chunks!")
+                            st.success(f"Processed {num} document chunks!")
                         else:
                             st.error("Failed to process documents")
                 else:
                     st.warning("Load embeddings first")
 
-        # Additional file upload option
         uploaded_files = st.file_uploader(
             "Or upload additional files",
-            type=["txt", "pdf"],
+            type=list(cfg.uploaded_extensions),
             accept_multiple_files=True,
             help="Upload text or PDF files to add to your knowledge base",
         )
@@ -229,13 +251,11 @@ def main():
         with col2:
             if uploaded_files and st.session_state.embeddings_loaded:
                 if st.button("Add Uploaded Files"):
-                    with st.spinner("Processing uploaded documents..."):
-                        num_chunks = st.session_state.rag_system.process_documents(
-                            uploaded_files
-                        )
-                        if num_chunks > 0:
+                    with st.spinner("Processing uploaded documents…"):
+                        num = rag.process_documents(uploaded_files)
+                        if num > 0:
                             st.session_state.documents_processed = True
-                            st.success(f"Added {num_chunks} more document chunks!")
+                            st.success(f"Added {num} more document chunks!")
                         else:
                             st.error("Failed to process uploaded documents")
 
@@ -245,21 +265,28 @@ def main():
         # System info
         st.subheader("📊 System Info")
         provider_info = (
-            "Ollama"
-            if st.session_state.rag_system.use_ollama
-            else "TinyLlama-1.1B (~2.2GB)"
+            "Ollama" if rag.use_ollama else "TinyLlama-1.1B (~2.2GB)"
+        )
+        all_ready = all(
+            [
+                st.session_state.model_loaded,
+                st.session_state.embeddings_loaded,
+                st.session_state.documents_processed,
+            ]
         )
         st.info(
             f"""
         **LLM Provider**: {provider_info}
-        **Embeddings**: all-MiniLM-L6-v2 (~22MB)
-        **Data Source**: {DATA_FOLDER}/ folder + uploads
+        **Embeddings**: {cfg.embedding_model} (~22MB)
+        **Data Source**: {cfg.data_folder}/ folder + uploads
         **Memory Usage**: Optimized for Raspberry Pi
-        **Status**: {'🟢 All systems ready' if all([st.session_state.model_loaded, st.session_state.embeddings_loaded, st.session_state.documents_processed]) else '🟡 Setup in progress'}
+        **Status**: {'🟢 All systems ready' if all_ready else '🟡 Setup in progress'}
         """
         )
 
+    # ------------------------------------------------------------------
     # Main chat interface
+    # ------------------------------------------------------------------
     if all(
         [
             st.session_state.model_loaded,
@@ -269,53 +296,46 @@ def main():
     ):
         st.header("💬 Chat with your documents")
 
-        # Chat input
         user_question = st.text_input(
             "Ask a question about your documents:", key="user_input"
         )
 
         if user_question:
             col1, col2 = st.columns([2, 1])
+            relevant_docs = []
 
             with col1:
-                with st.spinner("Searching documents and generating response..."):
-                    # Search for relevant documents
-                    relevant_docs = st.session_state.rag_system.similarity_search(
-                        user_question, k=3
+                with st.spinner("Searching documents and generating response…"):
+                    relevant_docs = rag.similarity_search(
+                        user_question, k=cfg.default_k
                     )
 
                     if relevant_docs:
-                        # Combine context from relevant documents
                         context = "\n\n".join(
-                            [
-                                (
-                                    doc["content"][:500] + "..."
-                                    if len(doc["content"]) > 500
-                                    else doc["content"]
-                                )
-                                for doc in relevant_docs
-                            ]
+                            (
+                                d["content"][: cfg.context_max_chars] + "…"
+                                if len(d["content"]) > cfg.context_max_chars
+                                else d["content"]
+                            )
+                            for d in relevant_docs
                         )
-
-                        # Generate response
-                        response = st.session_state.rag_system.generate_response(
-                            user_question, context
-                        )
-
-                        # Display response
+                        response = rag.generate_response(user_question, context)
                         st.subheader("🤖 Assistant Response:")
                         st.write(response)
-
                     else:
-                        st.warning("No relevant documents found for your question.")
+                        st.warning(
+                            "No relevant documents found for your question."
+                        )
 
             with col2:
                 if relevant_docs:
                     st.subheader("📄 Relevant Sources:")
                     for i, doc in enumerate(relevant_docs):
-                        with st.expander(f"Source {i+1} (Score: {doc['score']:.3f})"):
+                        with st.expander(
+                            f"Source {i + 1} (Score: {doc['score']:.3f})"
+                        ):
                             st.write(
-                                doc["content"][:300] + "..."
+                                doc["content"][:300] + "…"
                                 if len(doc["content"]) > 300
                                 else doc["content"]
                             )
@@ -327,7 +347,6 @@ def main():
             "👆 Please complete the setup steps in the sidebar to start using the RAG assistant."
         )
 
-        # Show requirements and installation instructions
         with st.expander("📦 Installation Requirements"):
             st.markdown(
                 """
@@ -335,31 +354,31 @@ def main():
             ```bash
             # Install Ollama
             curl -fsSL https://ollama.ai/install.sh | sh
-            
+
             # Install a lightweight model
             ollama pull llama3.2:1b
-            
+
             # Install Python dependencies
-            pip install streamlit requests sentence-transformers faiss-cpu pypdf langchain
+            pip install -r requirements.txt
             ```
-            
+
             **Option 2: Local Model (TinyLlama)**
             ```bash
-            pip install streamlit torch transformers langchain sentence-transformers faiss-cpu pypdf
+            pip install -r requirements.txt
             ```
-            
+
             **For Raspberry Pi 4 with 4GB+ RAM:**
             - Ollama models (1B-3B) run efficiently
             - TinyLlama model should run smoothly
             - Consider using swap memory if needed
             - Monitor temperature during extended use
-            
+
             **Memory Usage:**
             - Ollama llama3.2:1b: ~1.3GB
             - TinyLlama-1.1B: ~2.2GB
             - Embeddings model: ~22MB
             - Vector store: Depends on document size
-            
+
             **Data Folder:**
             - Place your documents in the `data/` folder
             - Supported formats: .txt, .md files
